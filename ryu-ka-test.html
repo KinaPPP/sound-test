@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ryu-Ka Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body, html {
+            width: 100%; height: 100%;
+            background: #cc0000;
+            overflow: hidden;
+            font-family: 'Georgia', serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: calc(100vh - 72px);
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 72px;
+            background: rgba(20, 0, 0, 0.88);
+            backdrop-filter: blur(8px);
+            border-top: 1px solid rgba(255, 204, 0, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 0 20px;
+        }
+
+        .title {
+            color: rgba(255, 230, 150, 0.55);
+            font-size: 13px;
+            letter-spacing: 0.15em;
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 2px;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-decoration: none;
+            transition: all 0.2s;
+            white-space: nowrap;
+            border: 1px solid;
+        }
+
+        .btn-play {
+            background: rgba(230, 57, 70, 0.3);
+            border-color: rgba(255, 204, 0, 0.55);
+            color: rgba(255, 240, 180, 0.95);
+        }
+        .btn-play:hover {
+            background: rgba(230, 57, 70, 0.55);
+            border-color: rgba(255, 204, 0, 0.9);
+        }
+
+        .btn-gh {
+            background: rgba(255,255,255, 0.04);
+            border-color: rgba(255, 230, 150, 0.2);
+            color: rgba(255, 230, 150, 0.5);
+        }
+        .btn-gh:hover {
+            background: rgba(255,255,255, 0.1);
+            border-color: rgba(255, 230, 150, 0.45);
+            color: rgba(255, 230, 150, 0.9);
+        }
+
+        .hint {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.35);
+            font-size: 13px;
+            letter-spacing: 0.2em;
+            pointer-events: none;
+            transition: opacity 1s;
+            text-align: center;
+            line-height: 2;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <div class="hint" id="hint">tap / touch</div>
+
+    <div class="footer">
+        <span class="title">Ryu-Ka</span>
+        <a class="btn btn-play" href="https://kinappp.github.io/ryu-ka/" target="_blank">
+            ▶ フルバージョンで遊ぶ
+        </a>
+        <a class="btn btn-gh" href="https://github.com/KinaPPP/ryu-ka" target="_blank">
+            GitHub
+        </a>
+    </div>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const hint = document.getElementById('hint');
+    const RENDER_SCALE = 0.5;
+
+    function resize() {
+        canvas.width  = window.innerWidth  * RENDER_SCALE;
+        canvas.height = (window.innerHeight - 72) * RENDER_SCALE;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 琉球音階（上限84で頭打ち）
+    const RYUKYU_SCALE = [
+        48,52,53,55,59,
+        60,64,65,67,71,
+        72,76,77,79,83,
+        84,84,84,84,84
+    ];
+
+    const masterLimiter = new Tone.Limiter(-6).toDestination();
+    const highSynth = new Tone.PolySynth(Tone.Synth, {
+        maxPolyphony: 8,
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 1.5 }
+    }).connect(masterLimiter);
+    const lowSynth = new Tone.PolySynth(Tone.Synth, {
+        maxPolyphony: 16,
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.015, decay: 0.3, sustain: 0.05, release: 1.0 }
+    }).connect(masterLimiter);
+    highSynth.volume.value = -18;
+    lowSynth.volume.value  = -14;
+
+    let isAudioStarted = false;
+
+    async function startAudio() {
+        if (!isAudioStarted) {
+            await Tone.start();
+            isAudioStarted = true;
+            hint.style.opacity = '0';
+        }
+    }
+
+    class Ripple {
+        constructor(x, y, notes) {
+            this.x = x; this.y = y; this.r = 0;
+            this.speed = (1.5 + (x / canvas.width)) * RENDER_SCALE;
+            this.hitFlags = [false,false,false,false];
+            this.hitCount = 0;
+            this.myNotes = notes;
+        }
+        update() {
+            this.r += this.speed;
+            const walls = [this.y, canvas.height-this.y, this.x, canvas.width-this.x];
+            for (let i = 0; i < 4; i++) {
+                if (this.r >= walls[i] && !this.hitFlags[i]) {
+                    if (this.hitCount < 4) {
+                        const midi = this.myNotes[this.hitCount];
+                        lowSynth.triggerAttackRelease(Tone.Frequency(midi,'midi'), '16n');
+                        if (this.hitCount === 0)
+                            highSynth.triggerAttackRelease(Tone.Frequency(midi+12,'midi'), '16n');
+                        this.hitCount++;
+                    }
+                    this.hitFlags[i] = true;
+                }
+            }
+        }
+        draw() {
+            const maxR = Math.sqrt(canvas.width**2 + canvas.height**2);
+            const alpha = Math.max(0, 1 - this.r / maxR);
+            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+            ctx.stroke();
+        }
+        isDead() {
+            return this.hitFlags.every(f=>f) && this.r > Math.max(canvas.width, canvas.height);
+        }
+    }
+
+    let ripples = [];
+
+    function spawnRipple(x, y) {
+        if (ripples.length > 20) ripples.shift();
+        const yRatio = 1 - (y / canvas.height);
+        const startIdx = Math.floor(yRatio * (RYUKYU_SCALE.length - 5));
+        const notes = RYUKYU_SCALE.slice(startIdx, startIdx + 5);
+        lowSynth.triggerAttackRelease(Tone.Frequency(notes[0],'midi'), '16n');
+        highSynth.triggerAttackRelease(Tone.Frequency(notes[0]+12,'midi'), '16n');
+        ripples.push(new Ripple(x, y, notes.slice(1)));
+    }
+
+    canvas.addEventListener('pointerdown', async (e) => {
+        await startAudio();
+        const x = e.clientX * RENDER_SCALE;
+        const y = e.clientY * RENDER_SCALE;
+        spawnRipple(x, y);
+    });
+    canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+
+    // ガイドアニメーション
+    function drawGuide(time) {
+        if (isAudioStarted) return;
+        if (time < 2000) return;
+        const cycleTime = (time - 2000) % 12000;
+        if (cycleTime > 5000) return;
+        let alpha = 0, shrink = 0;
+        if (cycleTime < 1000) alpha = cycleTime / 1000;
+        else if (cycleTime < 3500) {
+            alpha = 1;
+            const t = cycleTime - 1000;
+            shrink = (1 - Math.cos(t / 1250 * Math.PI * 2)) * 0.5;
+        } else {
+            alpha = 1 - (cycleTime - 3500) / 1500;
+        }
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const r = Math.max(20, Math.min(canvas.width, canvas.height) * 0.08) * (1 - shrink * 0.15);
+        ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.7})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(cx, cy, Math.max(0.1, r), 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.2})`;
+        ctx.beginPath(); ctx.arc(cx, cy, Math.max(0.1, r*0.6), 0, Math.PI*2); ctx.fill();
+    }
+
+    function loop(time) {
+        if (!time) time = performance.now();
+        const g = ctx.createLinearGradient(0, canvas.height, canvas.width, 0);
+        g.addColorStop(0,    '#cc0000');
+        g.addColorStop(0.3,  '#e63946');
+        g.addColorStop(0.35, '#f4d03f');
+        g.addColorStop(1,    '#ffcc00');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let i = ripples.length - 1; i >= 0; i--) {
+            ripples[i].update();
+            ripples[i].draw();
+            if (ripples[i].isDead()) ripples.splice(i, 1);
+        }
+        drawGuide(time);
+        requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
