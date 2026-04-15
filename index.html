@@ -317,14 +317,14 @@ function spawnRk(x,y){
 csz.addEventListener('pointerdown', async(e)=>{
     await ensureAudio();
     const rect=csz.getBoundingClientRect();
-    spawnSz((e.clientX-rect.left)*RS*csz.width/rect.width,
-            (e.clientY-rect.top )*RS*csz.height/rect.height);
+    spawnSz((e.clientX-rect.left)*csz.width/rect.width,
+            (e.clientY-rect.top )*csz.height/rect.height);
 });
 crk.addEventListener('pointerdown', async(e)=>{
     await ensureAudio();
     const rect=crk.getBoundingClientRect();
-    spawnRk((e.clientX-rect.left)*RS*crk.width/rect.width,
-            (e.clientY-rect.top )*RS*crk.height/rect.height);
+    spawnRk((e.clientX-rect.left)*crk.width/rect.width,
+            (e.clientY-rect.top )*crk.height/rect.height);
 });
 csz.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
 crk.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
